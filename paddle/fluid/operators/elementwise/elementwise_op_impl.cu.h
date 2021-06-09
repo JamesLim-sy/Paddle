@@ -28,25 +28,38 @@ namespace operators {
 
 enum ElementwiseType { kUnary = 1, kBinary = 2 };
 
+/*
+* Only the address of input data is the multiplier of 1,2,4, vectorized load
+* with corresponding multiplier-value is possible. Moreover, the maximum length
+* of vectorized load is 128 bytes once. Hence, valid vectorized load length
+* determination shall take both constraints into account.
+*/
 template <typename T>
 int GetVectorizedSizeImpl(const T *pointer) {
+  constexpr int max_load_length = 128;
+  int valid_vec_size = max_load_length / sizeof(T) / CHAR_BIT;
   uint64_t address = reinterpret_cast<uint64_t>(pointer);
+  constexpr int vec8 =
+      std::alignment_of<CudaAlignedVector<T, 8>>::value;  // NOLINT
   constexpr int vec4 =
       std::alignment_of<CudaAlignedVector<T, 4>>::value;  // NOLINT
   constexpr int vec2 =
       std::alignment_of<CudaAlignedVector<T, 2>>::value;  // NOLINT
-  if (address % vec4 == 0) {
-    return 4;
+  if (address % vec8 == 0) {
+    return std::min(vec8, valid_vec_size);
+  } else if (address % vec4 == 0) {
+    return std::min(vec4, valid_vec_size);
   } else if (address % vec2 == 0) {
-    return 2;
+    return std::min(vec2, valid_vec_size);
+  } else {
+    return 1;
   }
-  return 1;
 }
 
 template <typename InT, typename OutT>
 int GetVectorizedSize(const std::vector<const framework::Tensor *> &ins,
                       const std::vector<framework::Tensor *> &outs) {
-  int vec_size = 4;
+  int vec_size = 8;
   for (auto iter = ins.begin(); iter != ins.end(); ++iter) {
     vec_size =
         std::min<int>(vec_size, GetVectorizedSizeImpl((*iter)->data<InT>()));
@@ -193,6 +206,10 @@ void LaunchSameDimsElementwiseCudaKernel(
   auto stream = ctx.stream();
 
   switch (vec_size) {
+    case 8:
+      VectorizedKernel<ET, 8><<<grid_size, block_size, 0, stream>>>(
+          in0, in1, out, size, func);
+      break;
     case 4:
       VectorizedKernel<ET, 4><<<grid_size, block_size, 0, stream>>>(
           in0, in1, out, size, func);

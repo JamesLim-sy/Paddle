@@ -470,7 +470,7 @@ void LaunchBroadcastElementwiseCudaKernel(
                         "Currently, only Support binary calculation, "
                         "but received %d input tensors.\n",
                         static_cast<int>(ET)));
-  int in_vec_size = 4;
+  int in_vec_size = 8;
   framework::Tensor *out = (*outs)[0];
   for (auto *in : ins) {
     auto temp_size = GetVectorizedSizeImpl<InT>(in->data<InT>());
@@ -481,6 +481,11 @@ void LaunchBroadcastElementwiseCudaKernel(
   int vec_size = std::min(out_vec_size, in_vec_size);
 
   switch (vec_size) {
+    case 8: {
+      LaunchBroadcastKernelForDifferentDimSize<InT, OutT, ET, 8>(ctx, ins, out,
+                                                                 axis, func);
+      break;
+    }
     case 4: {
       LaunchBroadcastKernelForDifferentDimSize<InT, OutT, ET, 4>(ctx, ins, out,
                                                                  axis, func);
